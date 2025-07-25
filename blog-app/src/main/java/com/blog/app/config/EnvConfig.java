@@ -12,12 +12,10 @@ public class EnvConfig {
 
     @PostConstruct
     public void init() {
-        // Load .env file
         dotenv = Dotenv.configure()
-                       .ignoreIfMissing() // Prevents error if .env is missing (optional)
+                       .ignoreIfMissing() 
                        .load();
 
-        // Set environment variables into system properties
         System.setProperty("spring.datasource.url", dotenv.get("SPRING_DATASOURCE_URL"));
         System.setProperty("spring.datasource.username", dotenv.get("SPRING_DATASOURCE_USERNAME"));
         System.setProperty("spring.datasource.password", dotenv.get("SPRING_DATASOURCE_PASSWORD"));
@@ -25,7 +23,6 @@ public class EnvConfig {
         System.setProperty("spring.jpa.show-sql", dotenv.get("SPRING_JPA_SHOW_SQL"));
         System.setProperty("jwt.secret", dotenv.get("JWT_SECRET"));
         System.setProperty("jwt.expiration", dotenv.get("JWT_EXPIRATION"));
-
         System.setProperty("spring.mail.host", dotenv.get("SPRING_MAIL_HOST"));
         System.setProperty("spring.mail.port", dotenv.get("SPRING_MAIL_PORT"));
         System.setProperty("spring.mail.username", dotenv.get("SPRING_MAIL_USERNAME"));

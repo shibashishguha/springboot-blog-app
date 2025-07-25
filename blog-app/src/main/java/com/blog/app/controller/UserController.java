@@ -1,9 +1,10 @@
 package com.blog.app.controller;
 
 import com.blog.app.dto.ApiResponse;
+import com.blog.app.dto.EncryptedRequestDTO;
+import com.blog.app.dto.EncryptedResponseDTO;
 import com.blog.app.dto.JwtAuthRequest;
 import com.blog.app.dto.UserDTO;
-import com.blog.app.dto.UsernameCheckResponse;
 import com.blog.app.entity.User;
 import com.blog.app.repository.UserRepository;
 import com.blog.app.security.JwtTokenHelper;
@@ -12,12 +13,16 @@ import com.blog.app.service.CustomUserDetailsService;
 import com.blog.app.service.EmailService;
 import com.blog.app.service.OtpGenerator;
 import com.blog.app.service.UserService;
-import jakarta.validation.Valid;
+import com.blog.app.util.EncryptedRequest;
+import com.blog.app.util.EncryptionUtil;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import jakarta.validation.Validator;
 
 import java.security.Principal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
-
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -55,97 +60,117 @@ public class UserController {
 
     @Autowired
     private JwtTokenHelper jwtTokenHelper;
+    
+    @Autowired
+    private Validator validator;
+    
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
-	@PostMapping("/register")
-	public ResponseEntity<ApiResponse<UserDTO>> createUser(@Valid @RequestBody UserDTO userDto) {
+    @PostMapping("/register")
+    public ResponseEntity<EncryptedResponseDTO> createUser(@RequestBody EncryptedRequestDTO request) throws Exception {
+        // Step 1: Decrypt the incoming encrypted JSON
+        String decryptedJson = EncryptionUtil.decrypt(request.getEncryptedData());
 
-		UserDTO createdUser = userService.createUser(userDto);
-		ApiResponse<UserDTO> response = new ApiResponse<>(SUCCESS, "User registered successfully", createdUser);
-	    return new ResponseEntity<>(response, HttpStatus.CREATED);
-	}
+        // Step 2: Convert JSON string to UserDTO
+        ObjectMapper objectMapper = new ObjectMapper();
+        UserDTO userDto = objectMapper.readValue(decryptedJson, UserDTO.class);
+
+        var violations = validator.validate(userDto);
+        
+        //validate here
+        if(!violations.isEmpty()) {
+        	violations.iterator().next().getMessage();
+        }
+        // Step 3: Register the user
+        UserDTO createdUser = userService.createUser(userDto);
+
+        // Step 4: Convert createdUser object to JSON
+        String responseJson = objectMapper.writeValueAsString(createdUser);
+
+        // Step 5: Encrypt the response JSON
+        String encryptedResponse = EncryptionUtil.encrypt(responseJson);
+
+        // Step 6: Wrap in EncryptedResponseDTO
+        return ResponseEntity.ok(new EncryptedResponseDTO(encryptedResponse));
+    }
+
+    @PostMapping("/login")
+    public ResponseEntity<EncryptedResponseDTO> loginUser(@RequestBody EncryptedRequestDTO request) throws Exception {
+        String decryptedJson = EncryptionUtil.decrypt(request.getEncryptedData());
+        JwtAuthRequest authRequest = objectMapper.readValue(decryptedJson, JwtAuthRequest.class);
+
+        Authentication authentication = authServiceHelper.authenticate(
+            authRequest.getUsername(),
+            authRequest.getPassword()
+        );
+
+        User user = userRepo.findByUsername(authRequest.getUsername())
+            .orElseThrow(() -> new RuntimeException("User not found"));
+
+        String otp = OtpGenerator.generateOtp();
+        LocalDateTime expiry = LocalDateTime.now().plusMinutes(5);
+        user.setOtp(otp);
+        user.setOtpExpiryTime(expiry);
+        userRepo.save(user);
+
+        emailService.sendOtpEmail(user.getEmail(), otp);
+
+        ApiResponse<Void> apiResponse = new ApiResponse<>(PENDING, "OTP sent to your registered email", null);
+        String responseJson = objectMapper.writeValueAsString(apiResponse);
+        String encryptedResponse = EncryptionUtil.encrypt(responseJson);
+        return ResponseEntity.ok(new EncryptedResponseDTO(encryptedResponse));
+    }
 	
-	@GetMapping("/check-username")
-	public ResponseEntity<ApiResponse<UsernameCheckResponse>> checkUsername(@RequestParam String username) {
-	    boolean exists = userService.existsByUsername(username.trim());
-
-	    String message = exists
-	        ? "Username already exists"
-	        : "Username is available";
-
-	    UsernameCheckResponse data = new UsernameCheckResponse(
-	        HttpStatus.OK.value(),
-	        message,
-	        exists
-	    );
-
-	    ApiResponse<UsernameCheckResponse> response = new ApiResponse<>(SUCCESS, message, data);
-	    return ResponseEntity.ok(response);
-	}
 	
-	@PostMapping("/login")
-	public ResponseEntity<ApiResponse<Void>> loginUser(@RequestBody JwtAuthRequest request) {
-	    Authentication authentication = authServiceHelper.authenticate(
-	        request.getUsername(),
-	        request.getPassword()
-	    );
+    @PostMapping("/verify-otp")
+    public ResponseEntity<?> verifyOtp(@RequestBody EncryptedRequest request) {
+        try {
+            // 1. Decrypt the request
+            String decryptedJson = EncryptionUtil.decrypt(request.getEncryptedData());
 
-	    User user = userRepo.findByUsername(request.getUsername())
-	        .orElseThrow(() -> new RuntimeException("User not found"));
+            // 2. Convert decrypted string to JwtAuthRequest
+            ObjectMapper objectMapper = new ObjectMapper();
+            JwtAuthRequest authRequest = objectMapper.readValue(decryptedJson, JwtAuthRequest.class);
 
-	    String otp = OtpGenerator.generateOtp();
-	    LocalDateTime expiry = LocalDateTime.now().plusMinutes(5);
+            // 3. Proceed with your existing logic
+            User user = userRepo.findByUsername(authRequest.getUsername())
+                    .orElseThrow(() -> new RuntimeException("User not found"));
 
-	    user.setOtp(otp);
-	    user.setOtpExpiryTime(expiry);
-	    userRepo.save(user);
+            if (user.getOtp() == null || user.getOtpExpiryTime() == null) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(
+                        Map.of("status", "FAILURE", "message", "OTP not requested")
+                );
+            }
 
-	    emailService.sendOtpEmail(user.getEmail(), otp);
+            if (LocalDateTime.now().isAfter(user.getOtpExpiryTime())) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
+                        Map.of("status", "FAILURE", "message", "OTP expired")
+                );
+            }
 
-	    ApiResponse<Void> response = new ApiResponse<>(PENDING, "OTP sent to your registered email", null);
-	    return ResponseEntity.ok(response);
-	}
-	
-	
-	@PostMapping("/verify-otp")
-	public ResponseEntity<?> verifyOtp(@RequestBody JwtAuthRequest request) {
+            if (!user.getOtp().equals(authRequest.getOtp())) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
+                        Map.of("status", "FAILURE", "message", "Invalid OTP")
+                );
+            }
 
-	    User user = userRepo.findByUsername(request.getUsername())
-	        .orElseThrow(() -> new RuntimeException("User not found"));
+            UserDetails userDetails = userDetailsService.loadUserByUsername(user.getUsername());
+            String token = jwtTokenHelper.generateToken(userDetails);
 
-	    
-	    if (user.getOtp() == null || user.getOtpExpiryTime() == null) {
-	        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(
-	            Map.of("status",FAILURE, "message", "OTP not requested")
-	        );
-	    }
+            user.setOtp(null);
+            user.setOtpExpiryTime(null);
+            userRepo.save(user);
 
-	    
-	    if (LocalDateTime.now().isAfter(user.getOtpExpiryTime())) {
-	        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
-	            Map.of("status",FAILURE, "message", "OTP expired")
-	        );
-	    }
+            Map<String, String> data = Map.of("token", token);
 
-	    
-	    if (!user.getOtp().equals(request.getOtp())) {
-	        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
-	            Map.of("status",FAILURE, "message", "Invalid OTP")
-	        );
-	    }
-
-	   
-	    UserDetails userDetails = userDetailsService.loadUserByUsername(user.getUsername());
-	    String token = jwtTokenHelper.generateToken(userDetails);
-
-	    
-	    user.setOtp(null);
-	    user.setOtpExpiryTime(null);
-	    userRepo.save(user);
-
-	    Map<String, String> data = Map.of("token", token);
-
-	    return ResponseEntity.ok(new ApiResponse<>(SUCCESS, "Logged In succcessfully", data));
-	}
+            return ResponseEntity.ok(new ApiResponse<>("SUCCESS", "Logged In successfully", data));
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    Map.of("status", "FAILURE", "message", "Error during OTP verification")
+            );
+        }
+    }
 	
 	@PutMapping("/update")
 	public ResponseEntity<ApiResponse<UserDTO>> updateCurrentUser(@RequestBody UserDTO userDto) {
@@ -183,4 +208,20 @@ public class UserController {
 	        new ApiResponse<>(SUCCESS, "Current user fetched successfully", dto)
 	    );
 	}
+	
+	@GetMapping("/{userId}")
+	public ResponseEntity<ApiResponse<UserDTO>> getUserById(@PathVariable Long userId) {
+	    UserDTO userDto = userService.getUserById(userId);
+	    return ResponseEntity.ok(
+	        new ApiResponse<>(SUCCESS, "User fetched successfully", userDto)
+	    );
+	}
+	
+	@GetMapping()
+	public ResponseEntity<ApiResponse<List<UserDTO>>> getAllUsers() {
+	    List<UserDTO> users = userService.getAllUsers();
+	    return ResponseEntity.ok(
+	        new ApiResponse<>(SUCCESS, "All users fetched successfully", users)
+	    );
+}
 }

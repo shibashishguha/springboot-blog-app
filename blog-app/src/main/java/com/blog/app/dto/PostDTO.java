@@ -6,8 +6,14 @@ public class PostDTO {
     private Long id;
     private String title;
     private String content;
-    private String image;
-    private LocalDateTime createdAt;
+    private String imageUrl;
+    public String getImageUrl() {
+		return imageUrl;
+	}
+	public void setImageUrl(String imageUrl) {
+		this.imageUrl = imageUrl;
+	}
+	private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private Long userId;
     private Long categoryId;
@@ -35,12 +41,6 @@ public class PostDTO {
 	}
 	public void setContent(String content) {
 		this.content = content;
-	}
-	public String getImage() {
-		return image;
-	}
-	public void setImage(String image) {
-		this.image = image;
 	}
 	public LocalDateTime getCreatedAt() {
 		return createdAt;

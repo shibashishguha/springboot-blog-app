@@ -6,6 +6,5 @@ public class AppResponseStatus {
     public static final String PENDING = "pending";
     public static final String ERROR = "error";
 
-    private AppResponseStatus() {
-    }
+    private AppResponseStatus() {}
 }

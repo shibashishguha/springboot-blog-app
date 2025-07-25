@@ -5,10 +5,14 @@ import com.blog.app.entity.Post;
 import com.blog.app.exception.ResourceNotFoundException;
 import com.blog.app.repository.PostRepository;
 import com.blog.app.service.PostService;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import java.io.IOException;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -21,14 +25,20 @@ public class PostController {
     
     @Autowired
     private PostRepository postRepo;
-
-    @PostMapping
-    public ResponseEntity<PostDTO> createPost(@RequestBody PostDTO postDto) {
-        PostDTO createdPost = postService.createPost(
-            postDto,
-            postDto.getUserId(),
-            postDto.getCategoryId()
-        );
+    
+    @PostMapping("/users/{userId}/categories/{categoryId}/createimage")
+    public ResponseEntity<PostDTO> createPostWithImage(
+            @PathVariable Long userId,
+            @PathVariable Long categoryId,
+            @RequestPart("post") String postDtoJson,
+            @RequestPart(value = "imageUrl", required = false) MultipartFile image
+            ) throws IOException {
+    	
+    	
+        ObjectMapper mapper = new ObjectMapper();
+        PostDTO postDto = mapper.readValue(postDtoJson, PostDTO.class);
+        System.out.println("--------image------"+image);
+        PostDTO createdPost = postService.createPost(postDto, image, userId, categoryId);
         return new ResponseEntity<>(createdPost, HttpStatus.CREATED);
     }
 

@@ -31,8 +31,6 @@ public class Post {
     @Column(length = 10000)
     private String content;
 
-    private String image;
-
     private LocalDateTime createdAt;
 
     private LocalDateTime updatedAt;
@@ -46,6 +44,17 @@ public class Post {
     private Category category;
     
     private int views = 0;
+    
+    @Column(name = "image_url")
+    private String imageUrl;
+
+	public String getImageUrl() {
+		return imageUrl;
+	}
+
+	public void setImageUrl(String imageUrl) {
+		this.imageUrl = imageUrl;
+	}
 
 	public int getViews() {
 		return views;
@@ -77,14 +86,6 @@ public class Post {
 
 	public void setContent(String content) {
 		this.content = content;
-	}
-
-	public String getImage() {
-		return image;
-	}
-
-	public void setImage(String image) {
-		this.image = image;
 	}
 
 	public LocalDateTime getCreatedAt() {
